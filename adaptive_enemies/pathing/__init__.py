@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Dict, List, Optional
 
-from game.grid import Pos, Grid
+from adaptive_enemies.game.grid import Pos, Grid
 
 
 @dataclass
@@ -15,14 +15,8 @@ class PathResult:
 
 CostMap = Dict[Pos, float]
 
+from .bfs import bfs
+from .dijkstra import dijkstra
+from .astar import astar
 
-def bfs(grid: Grid, start: Pos, goal: Pos) -> PathResult:
-    raise NotImplementedError
-
-
-def dijkstra(grid: Grid, start: Pos, goal: Pos, cost_map: CostMap = None) -> PathResult:
-    raise NotImplementedError
-
-
-def astar(grid: Grid, start: Pos, goal: Pos, cost_map: CostMap = None) -> PathResult:
-    raise NotImplementedError
+__all__ = ['PathResult', 'CostMap', 'bfs', 'dijkstra', 'astar']
