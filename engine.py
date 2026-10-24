@@ -5,7 +5,7 @@ from typing import List, Tuple, Callable, Optional
 import copy
 
 from grid import Grid, Position, DEFAULT_MAP
-from enemy import Patroller, Flanker
+from game.enemy import Patroller, Flanker
 from learning import Tracker, ZoneModel
 from pathing import astar
 
