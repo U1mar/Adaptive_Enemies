@@ -121,7 +121,7 @@ class GameUI:
 
         # Player position and key status
         zone = grid.zone_of(player_pos)
-        key_status = "✓" if got_key else "✗"
+        key_status = "Yes" if got_key else "No"
         lines.append(f"[bold]Position:[/bold] {player_pos}  [bold]Zone:[/bold] {zone}  [bold]Key:[/bold] {key_status}")
 
         # Enemy states

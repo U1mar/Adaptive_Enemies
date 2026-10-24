@@ -2,6 +2,7 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from typing import List, Tuple, Optional, Set
+from collections import deque
 
 Position = Tuple[int, int]
 
@@ -41,6 +42,26 @@ class Grid:
         elif x < 2 * third:
             return 'middle'
         return 'east'
+
+    def path_distance(self, start: Position, goal: Position) -> Optional[int]:
+        """Return shortest path length between two positions using BFS, or None if unreachable."""
+        if start == goal:
+            return 0
+        if not self.is_walkable(start) or not self.is_walkable(goal):
+            return None
+
+        queue = deque([(start, 0)])
+        visited = {start}
+
+        while queue:
+            current, dist = queue.popleft()
+            if current == goal:
+                return dist
+            for neighbor in self.neighbors(current):
+                if neighbor not in visited:
+                    visited.add(neighbor)
+                    queue.append((neighbor, dist + 1))
+        return None
 
     @classmethod
     def from_ascii(cls, ascii_map: str) -> Grid:

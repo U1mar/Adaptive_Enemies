@@ -1,21 +1,17 @@
-"""Main entry point for the adaptive enemies game with human player."""
+"""Main entry point for the adaptive enemies game with human player (interactive)."""
 from __future__ import annotations
 import sys
 from typing import List, Tuple, Optional
 
+import readchar
 from rich.console import Console
+from rich.panel import Panel
 from rich.live import Live
 
 from grid import Grid, Position
-from game.engine import Game, RoundResult, Policy
+from game.engine import Game
 from game.ui import GameUI
 from game.enemy import Enemy
-
-
-def human_policy(grid: Grid, player_pos: Position, got_key: bool, enemy_positions: List[Position]) -> Position:
-    """Policy that waits for human input. This is a placeholder - actual input handled in main loop."""
-    # This won't be called directly; we handle input in the main loop
-    return player_pos
 
 
 def get_move_from_key(key: str, player_pos: Position, grid: Grid) -> Position:
@@ -33,112 +29,141 @@ def get_move_from_key(key: str, player_pos: Position, grid: Grid) -> Position:
     return player_pos
 
 
-def run_game(max_turns_per_round: int = 500, scripted_inputs: Optional[List[str]] = None) -> None:
-    """Run the game with human input or scripted inputs for testing."""
+def print_grid(grid: Grid, player_pos: Position, enemies: List[Enemy], got_key: bool) -> None:
+    """Print a simple text representation of the grid."""
+    console = Console()
+    rows = []
+    for y in range(grid.height):
+        row = []
+        for x in range(grid.width):
+            pos = (x, y)
+            if pos == player_pos:
+                row.append("@")
+            elif pos == grid.vault and not got_key:
+                row.append("K")
+            elif pos == grid.exit:
+                row.append("E")
+            elif any(e.position == pos for e in enemies):
+                row.append("X")
+            elif grid.is_wall(pos):
+                row.append("#")
+            else:
+                row.append(".")
+        rows.append("".join(row))
+    console.print("\n".join(rows))
+    console.print(f"\n[bold]Position:[/bold] {player_pos}  [bold]Key:[/bold] {'Yes' if got_key else 'No'}  [bold]Enemies:[/bold] {len(enemies)}")
+
+
+def run_interactive() -> None:
+    """Run the game with human input from CLI using Live for in-place rendering."""
     console = Console()
     game = Game()
     ui = GameUI(console)
 
-    # For scripted testing
-    input_iterator = iter(scripted_inputs) if scripted_inputs else None
-    turn_count = 0
-    max_total_turns = 5 if scripted_inputs else float('inf')
-
-    # Track if we're in a round
     player_pos = game.grid.start
     got_key = False
-    round_active = True
+    turn_count = 0
 
-    def render_frame():
-        ui.update_markov_prediction(game.zone_model, game.grid.zone_of(player_pos))
-        return ui.get_layout(game.grid, player_pos, game.enemies, got_key, game.tracker, game.zone_model)
+    # Initial UI state
+    ui.update_markov_prediction(game.zone_model, game.grid.zone_of(player_pos))
+    layout = ui.get_layout(game.grid, player_pos, game.enemies, got_key, game.tracker, game.zone_model)
 
-    with Live(render_frame(), console=console, refresh_per_second=10, screen=True) as live:
-        while turn_count < max_total_turns:
-            # Update display
-            live.update(render_frame())
+    # Show controls once at start
+    console.print(Panel(
+        "[bold]Controls:[/bold] W/A/S/D = move  |  H = toggle heatmap  |  Q = quit\n"
+        "[bold]Goal:[/bold] Reach the key (K), then exit (E) without getting caught (X)",
+        title="Adaptive Enemies",
+        border_style="cyan"
+    ))
 
-            # Get input
-            if input_iterator:
-                try:
-                    key = next(input_iterator)
-                except StopIteration:
-                    break
-            else:
-                # For interactive mode, we'd use console.input() but that breaks Live
-                # So we'll just use a simple approach for the scripted test
-                key = 'q'  # Default to quit for non-scripted
-
-            turn_count += 1
+    # Use Live for in-place rendering - prevents multiple boards stacking
+    with Live(layout, console=console, refresh_per_second=10) as live:
+        while True:
+            # Use readchar for single keypress (no Enter needed)
+            key = readchar.readkey().lower()
 
             if key == 'q':
+                live.update(Panel("[yellow]Quitting...[/yellow]", border_style="yellow"))
                 break
             elif key == 'h':
                 ui.toggle_heatmap()
+                # Re-render with updated heatmap
+                ui.update_markov_prediction(game.zone_model, game.grid.zone_of(player_pos))
+                layout = ui.get_layout(game.grid, player_pos, game.enemies, got_key, game.tracker, game.zone_model)
+                live.update(layout)
                 continue
-            elif key in ('w', 'a', 's', 'd'):
-                # Move player
-                new_pos = get_move_from_key(key, player_pos, game.grid)
+            elif key not in ('w', 'a', 's', 'd'):
+                live.update(Panel("[red]Invalid input. Use WASD to move, H for heatmap, Q to quit.[/red]", border_style="red"))
+                continue
 
-                # Record position with tracker (engine does this at start of turn)
-                game.tracker.record(player_pos)
+            # Move player
+            new_pos = get_move_from_key(key, player_pos, game.grid)
+            if new_pos == player_pos:
+                live.update(Panel("[red]Can't move there (wall or out of bounds).[/red]", border_style="red"))
+                continue
 
-                # Update zone model
-                current_zone = game.grid.zone_of(player_pos)
-                if hasattr(run_game, 'last_zone'):
-                    if current_zone != run_game.last_zone:
-                        game.zone_model.record_transition(run_game.last_zone, current_zone)
-                run_game.last_zone = current_zone
+            # Record position with tracker
+            game.tracker.record(player_pos)
 
-                # Decay tracker every 5 turns
-                if turn_count % 5 == 0 and turn_count > 0:
-                    game.tracker.decay_counts()
+            # Update zone model
+            current_zone = game.grid.zone_of(player_pos)
+            if hasattr(run_interactive, 'last_zone'):
+                if current_zone != run_interactive.last_zone:
+                    game.zone_model.record_transition(run_interactive.last_zone, current_zone)
+            run_interactive.last_zone = current_zone
 
-                player_pos = new_pos
+            # Decay tracker every 5 turns
+            turn_count += 1
+            if turn_count % 5 == 0:
+                game.tracker.decay_counts()
 
-                # Check for key pickup
-                if player_pos == game.grid.vault:
-                    got_key = True
+            player_pos = new_pos
 
-                # Check for capture
-                enemy_positions = [e.position for e in game.enemies]
-                if player_pos in enemy_positions:
-                    ui.set_last_result(f"CAUGHT at turn {turn_count}!")
-                    round_active = False
-                    break
+            # Check for key pickup
+            if player_pos == game.grid.vault:
+                got_key = True
+                live.update(Panel("[green]Got the key![/green]", border_style="green"))
+                # Brief pause to show message, then continue
+                continue
 
-                # Check for escape
-                if player_pos == game.grid.exit and got_key:
-                    ui.set_last_result(f"ESCAPED in {turn_count} turns!")
-                    round_active = False
-                    break
+            # Check for capture
+            enemy_positions = [e.position for e in game.enemies]
+            if player_pos in enemy_positions:
+                ui.set_last_result(f"CAUGHT at turn {turn_count}!")
+                ui.update_markov_prediction(game.zone_model, game.grid.zone_of(player_pos))
+                layout = ui.get_layout(game.grid, player_pos, game.enemies, got_key, game.tracker, game.zone_model)
+                live.update(layout)
+                live.update(Panel("[bold red]GAME OVER - CAUGHT![/bold red]", border_style="red"))
+                break
 
-                # Update enemies
-                for enemy in game.enemies:
-                    enemy.update(game.grid, player_pos, game.tracker, game.zone_model, game.alpha)
+            # Check for escape
+            if player_pos == game.grid.exit and got_key:
+                ui.set_last_result(f"ESCAPED in {turn_count} turns!")
+                ui.update_markov_prediction(game.zone_model, game.grid.zone_of(player_pos))
+                layout = ui.get_layout(game.grid, player_pos, game.enemies, got_key, game.tracker, game.zone_model)
+                live.update(layout)
+                live.update(Panel("[bold green]VICTORY - ESCAPED![/bold green]", border_style="green"))
+                break
 
-                # Check capture after enemy move
-                enemy_positions = [e.position for e in game.enemies]
-                if player_pos in enemy_positions:
-                    ui.set_last_result(f"CAUGHT at turn {turn_count} (enemy moved)!")
-                    round_active = False
-                    break
+            # Update enemies
+            for enemy in game.enemies:
+                enemy.update(game.grid, player_pos, game.tracker, game.zone_model, game.alpha)
 
-            # Small delay for visualization
-            import time
-            time.sleep(0.1)
+            # Check capture after enemy move
+            enemy_positions = [e.position for e in game.enemies]
+            if player_pos in enemy_positions:
+                ui.set_last_result(f"CAUGHT at turn {turn_count} (enemy moved)!")
+                ui.update_markov_prediction(game.zone_model, game.grid.zone_of(player_pos))
+                layout = ui.get_layout(game.grid, player_pos, game.enemies, got_key, game.tracker, game.zone_model)
+                live.update(layout)
+                live.update(Panel("[bold red]GAME OVER - CAUGHT![/bold red]", border_style="red"))
+                break
 
-        # Final render
-        live.update(render_frame())
-
-    # Print final result
-    if round_active:
-        console.print(f"[yellow]Game ended after {turn_count} turns (max reached)[/yellow]")
-    console.print("[green]Game session ended.[/green]")
+            # Re-render (update in place)
+            ui.update_markov_prediction(game.zone_model, game.grid.zone_of(player_pos))
+            layout = ui.get_layout(game.grid, player_pos, game.enemies, got_key, game.tracker, game.zone_model)
+            live.update(layout)
 
 
 if __name__ == "__main__":
-    # For testing: run 5 turns with scripted input
-    # Move right 4 times, then quit
-    scripted = ['d', 'd', 'd', 'd', 'q']
-    run_game(scripted_inputs=scripted)
+    run_interactive()

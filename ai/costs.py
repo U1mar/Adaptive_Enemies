@@ -12,15 +12,24 @@ def build_cost_map(tracker: Tracker, alpha: float, min_step_cost: float = 0.1) -
     """
     Build a cost map from tracker probabilities.
 
-    For patrollers: cost = -alpha * p so that likely tiles become cheaper to walk through.
+    For patrollers: cost = -alpha * normalized_prob so that likely tiles become cheaper to walk through.
+    Normalize probabilities by maximum so costs are in reasonable range.
     Clamp so total step cost stays at least min_step_cost.
     """
     prob_map = tracker.probability_map()
     cost_map = {}
 
+    if not prob_map:
+        return cost_map
+
+    # Normalize by maximum probability
+    max_prob = max(prob_map.values()) if prob_map.values() else 1.0
+
     for pos, prob in prob_map.items():
-        # cost = -alpha * prob, making high-probability tiles cheaper
-        cost = -alpha * prob
+        # Normalize probability to [0, 1] range
+        normalized_prob = prob / max_prob if max_prob > 0 else 0.0
+        # cost = -alpha * normalized_prob, making high-probability tiles cheaper
+        cost = -alpha * normalized_prob
         # Clamp so total step cost (1.0 + cost) stays at least min_step_cost
         # This means cost >= min_step_cost - 1.0
         min_cost = min_step_cost - 1.0
