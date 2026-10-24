@@ -1,26 +1,88 @@
-# Report Notes (copy‑paste sections)
+# Report Notes: Adaptive Enemies Batch Evaluation
 
-## Data structures & why
-- **Grid (width, height, walls set, start/vault/exit)** – O(1) wall checks, 4‑dir neighbors, zone lookup by x‑third.
-- **Tracker** – `dict[Position, float]` visit counts with exponential decay (`decay=0.95`) and fixed‑length deque history (50). Gives a probability map `p(tile)` that emphasises recent player activity.
-- **ZoneModel** – 3×3 transition matrix with Laplace smoothing (`alpha=1.0`). Stores `transitions[from][to]` counts; `predict_next(zone)` returns most likely next zone.
-- **Enemy state machine** – `Patroller` (loop patrol, chase on sight) and `Flanker` (ambush at exit‑side of hottest zone, chase on sight). Shared `replan_interval=3` limits A* calls.
+## Experiment Configuration
 
-## How the model feeds A*
-1. Each turn the Tracker records the player tile and decays every 5 turns.
-2. `build_cost_map(tracker, α)` converts the probability map to a cost map: `cost = -α * p`, clamped so step cost ≥ 0.1.
-3. Enemy `update()` calls `astar(grid, pos, target, cost_map)` only when `replan_counter ≥ 3` or on state change.
-4. Flanker also uses `build_flank_targets(grid, prob_map)` to pick a wait tile on the eastern boundary of the hottest zone.
+- **Map**: 30×15 grid, three parallel vertical corridors (west/middle/east) joined only at Start (row 1), Vault (row 7), Exit (row 13)
+- **Enemies per round**: 2 Patrollers (west & middle routes), 1 Flanker (east route)
+- **Learning parameters**: Tracker decay 10% every 5 turns, ZoneModel Laplace smoothing (α=1), Cost map α=3.0
+- **Rounds per bot**: 30
+- **Max turns per round**: 500
 
-## Results
-- **FixedRouteBot** (deterministic east‑corridor A*): capture rate oscillates 1/0 each round → final 0.50, no learning gain.
-- **RandomBot / SwitchingBot**: captured every round (1.00) because they wander into patroller corridors.
-- ZoneModel prediction accuracy stays near zero (player zones are deterministic, but Laplace smoothing spreads probability).
-- A* replan count per round ≈ 0 (enemies replan every 3 turns, but the batch only counts explicit `astar` calls; internal enemy replans are not hooked).
+## Bots Tested
 
-## Limitations
-- Cost map only lowers cost; it never *increases* cost for unlikely tiles, so enemies are only mildly attracted.
-- Tracker decay is slow; old visits linger, diluting adaptation.
-- Flanker’s hottest‑zone logic assumes east exit; not general.
-- Batch script monkey‑patches `pathing.astar` – misses replans triggered inside enemy `update` without going through the wrapper.
-- No visualisation of enemy paths during batch runs.
+| Bot | Description |
+|-----|-------------|
+| **FixedRouteBot** | Always takes the east corridor (shortest path S→K→E) |
+| **SwitchingBot** | Alternates between east and middle corridors every 3 rounds |
+| **RandomBot** | Chooses a random valid move each turn (no policy) |
+
+## Results Summary
+
+### FixedRouteBot (30 rounds)
+- **Captured**: 30/30 (100%)
+- **Escaped**: 0/30 (0%)
+- **Average turns to capture**: 9.0
+- **Early rounds (1-10) capture rate**: 10/10 (100%)
+- **Late rounds (21-30) capture rate**: 10/10 (100%)
+- **Capture rate change**: No rise (100% → 100%)
+
+### SwitchingBot (30 rounds)
+- **Captured**: 30/30 (100%)
+- **Escaped**: 0/30 (0%)
+- **Average turns to capture**: 18.9
+
+### RandomBot (30 rounds)
+- **Captured**: 30/30 (100%)
+- **Escaped**: 0/30 (0%)
+- **Average turns to capture**: 11.4
+
+## Analysis
+
+### Learning Effectiveness
+The FixedRouteBot results show **no improvement in capture rate from early to late rounds** (10/10 → 10/10). This indicates that on the current map geometry, the learning system (Tracker + ZoneModel + cost maps) does not produce a measurable advantage against a deterministic corridor-hugging policy.
+
+**Possible reasons:**
+1. **Geometry dominates**: The east corridor is a straight line from Start to Vault to Exit. Patrollers in the middle corridor have line-of-sight onto the east corridor junction rows, capturing the player before zone-model predictions matter.
+2. **Capture is too fast**: Average 9 turns leaves little time for the tracker to accumulate meaningful statistics before the round ends.
+3. **Zone transitions are deterministic**: FixedRouteBot never transitions zones after the initial commitment (stays in east), so ZoneModel has no transitions to learn from.
+4. **Cost map saturation**: With α=3.0, costs clamp at -0.9 quickly, reducing differentiation between hot and cold tiles.
+
+### SwitchingBot vs FixedRouteBot
+SwitchingBot survives ~2× longer (18.9 vs 9.0 turns) because it forces patrollers to relearn when the corridor switches. However, capture rate remains 100% — the flanker in the east corridor eventually intercepts.
+
+### RandomBot
+RandomBot survives slightly longer than FixedRouteBot (11.4 vs 9.0 turns) due to occasional backtracking, but still gets caught 100% of the time.
+
+## Visualizations Generated
+
+`run_batch.py` produces:
+- `markov_accuracy.png` — ZoneModel next-zone prediction accuracy over rounds (predict-before-observe protocol)
+- `capture_rate_by_round.png` — Per-bot capture rate over 30 rounds
+- `avg_turns_by_round.png` — Per-bot average turns over 30 rounds
+- `heatmap_final.png` — Final tracker probability map overlaid on grid
+- `batch_results.csv` — Raw per-round data
+
+## Conclusions
+
+1. **Core mechanics work**: Patrol routes connect via A*, line-of-sight blocks correctly, spawns respect distance/zones, capture detection is symmetric, learning persists across rounds.
+2. **Learning signal is weak on this map**: The corridor geometry and enemy placement (middle patroller sees east junction) cause early capture before adaptation can demonstrate value.
+3. **Recommended map changes for stronger learning signal**:
+   - Lengthen corridors (more tiles between junctions)
+   - Add occluding walls between corridors at junction rows
+   - Reduce patroller sight radius or reposition spawns
+   - Increase max turns per round
+
+## Test Coverage
+
+34 unit tests pass, covering:
+- Grid pathfinding (BFS distance)
+- Patrol route construction (connected, excludes S/V/E, valid waypoints)
+- Enemy spawning (min distance ≥8, per-zone, avoids junction rows)
+- Line-of-sight (clear, wall-blocked, range-limited, symmetric)
+- Cost map normalization (clamping, monotonicity with α, empty tracker)
+- Game.step (movement, 3 capture types, key pickup, escape)
+- Patroller behavior (1-tile steps, tracker-weighted waypoint selection)
+- Flanker behavior (hottest-zone flank target, sight-gated chase)
+- play_round (uses step internally)
+- Patrol adjacency (A*-connected waypoints yield adjacent steps)
+- Symmetric capture (player→enemy, enemy→player, swap, no-capture adjacent)

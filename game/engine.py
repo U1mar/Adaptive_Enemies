@@ -119,7 +119,16 @@ def find_spawn_position(grid: Grid, min_distance: int = 8, exclude: List[Positio
                     candidates.append((pos, dist))
 
     if not candidates:
-        # Fallback: any walkable position in zone not at start
+        # Fallback: any walkable position in zone not at start, respecting avoid_junction_rows
+        for y in range(1, grid.height - 1):
+            if y in junction_rows:
+                continue
+            for x in range(1, grid.width - 1):
+                pos = (x, y)
+                if grid.is_walkable(pos) and pos != grid.start and pos not in exclude:
+                    if zone is None or grid.zone_of(pos) == zone:
+                        return pos
+        # Last resort: any walkable not at start
         for y in range(1, grid.height - 1):
             for x in range(1, grid.width - 1):
                 pos = (x, y)
