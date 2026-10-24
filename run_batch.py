@@ -9,23 +9,27 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
 from grid import Grid, Position, DEFAULT_MAP
-from engine import Game, RoundResult
+from game.engine import Game, RoundResult
 from bots import FixedRouteBot, SwitchingBot, RandomBot
 from pathing import bfs, dijkstra, astar
 from learning import Tracker, ZoneModel
 
 
 def run_bot_rounds(bot_class, num_rounds: int = 30) -> List[RoundResult]:
-    """Run multiple rounds with a bot, returning results."""
+    """Run multiple rounds with a bot, returning results.
+    Creates Game ONCE and reuses it, calling reset_enemies() between rounds
+    so learning (tracker, zone_model) persists across rounds.
+    """
     results = []
     bot = bot_class()
+    game = Game()  # Create ONCE
     for round_num in range(num_rounds):
-        game = Game()
         # For SwitchingBot, call new_round
         if hasattr(bot, 'new_round'):
             bot.new_round()
-        result = game.run_round(bot)
+        result = game.play_round(bot)
         results.append(result)
+        # Reset enemies but keep tracker/zone_model for learning persistence
         game.reset_enemies()
     return results
 
@@ -77,27 +81,52 @@ def plot_capture_rate(results: Dict[str, List[RoundResult]], filepath: str) -> N
 
 
 def plot_markov_accuracy(results: Dict[str, List[RoundResult]], filepath: str) -> None:
-    """Plot Markov prediction accuracy per round."""
+    """Plot Markov prediction accuracy per round.
+
+    For each round, predict each zone change BEFORE observing it,
+    using only data from PREVIOUS rounds. Count only zone changes (transitions).
+    """
     plt.figure(figsize=(10, 6))
     for bot_name, round_results in results.items():
         accuracies = []
-        for r in round_results:
-            if len(r.zones_visited) > 1:
-                # Create a temporary ZoneModel to test accuracy on this round's zones
-                from learning import ZoneModel
-                zm = ZoneModel()
-                for i in range(len(r.zones_visited) - 1):
-                    zm.record_transition(r.zones_visited[i], r.zones_visited[i+1])
-                acc = zm.prediction_accuracy(r.zones_visited)
-                accuracies.append(acc)
+        # ZoneModel trained on all previous rounds
+        zm = ZoneModel()
+
+        for round_idx, r in enumerate(round_results):
+            # Predict each zone transition in this round using model trained on previous rounds
+            round_correct = 0
+            round_total = 0
+
+            zones = r.zones_visited
+            for i in range(len(zones) - 1):
+                current_zone = zones[i]
+                next_zone = zones[i + 1]
+
+                # Only count zone CHANGES
+                if current_zone != next_zone:
+                    round_total += 1
+                    predicted = zm.predict_next(current_zone)
+                    if predicted == next_zone:
+                        round_correct += 1
+
+            # Record accuracy for this round (only if there were zone changes)
+            if round_total > 0:
+                accuracies.append(round_correct / round_total)
             else:
                 accuracies.append(0.0)
-        # Running average
+
+            # NOW update the model with this round's transitions (for future rounds)
+            for i in range(len(zones) - 1):
+                if zones[i] != zones[i + 1]:
+                    zm.record_transition(zones[i], zones[i + 1])
+
+        # Running average of per-round accuracies
         running_avg = [sum(accuracies[:i+1])/(i+1) for i in range(len(accuracies))]
         plt.plot(range(1, len(round_results) + 1), running_avg, label=bot_name, marker='o', markersize=3)
+
     plt.xlabel('Round')
-    plt.ylabel('Markov Prediction Accuracy')
-    plt.title('Markov Model Prediction Accuracy (Running Average)')
+    plt.ylabel('Markov Prediction Accuracy (on zone changes)')
+    plt.title('Markov Model Prediction Accuracy (predict before observing)')
     plt.legend()
     plt.grid(True, alpha=0.3)
     plt.tight_layout()
@@ -208,10 +237,10 @@ def main():
         avg_turns = sum(r.turns for r in round_results) / len(round_results)
         print(f"{bot_name}: Captured {caught}/30, Escaped {escaped}/30, Avg turns: {avg_turns:.1f}")
 
-    # Check if FixedRouteBot capture rate rises
+    # Check if FixedRouteBot capture rate rises (rounds 1-10 vs 21-30)
     fr_results = results['FixedRouteBot']
     early_caught = sum(1 for r in fr_results[:10] if r.caught)
-    late_caught = sum(1 for r in fr_results[-10:] if r.caught)
+    late_caught = sum(1 for r in fr_results[20:30] if r.caught)  # rounds 21-30 (indices 20-29)
     print(f"\nFixedRouteBot: Early rounds (1-10) capture rate: {early_caught}/10")
     print(f"FixedRouteBot: Late rounds (21-30) capture rate: {late_caught}/10")
     if late_caught > early_caught:
