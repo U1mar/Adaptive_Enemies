@@ -86,16 +86,9 @@ class GameUI:
                 elif pos == grid.start:
                     cell = Text("S", style="dim white")
                 elif self.ui_state.show_heatmap and pos in prob_map:
-                    # Heatmap: shade background based on probability
+                    # Heatmap: red for high probability, green for low probability
                     prob = prob_map[pos]
-                    if prob > 0.7:
-                        bg = "red"
-                    elif prob > 0.4:
-                        bg = "yellow"
-                    elif prob > 0.1:
-                        bg = "blue"
-                    else:
-                        bg = "black"
+                    bg = "red" if prob > 0.5 else "green"
                     cell = Text("·", style=f"white on {bg}")
                 else:
                     cell = Text("·", style="dim white")

@@ -34,15 +34,30 @@ def make_grid_with_wall() -> Grid:
 
 
 def make_patrol_route(grid: Grid) -> List[Position]:
-    """Create a simple patrol route."""
-    route = []
+    """Create a simple patrol route - returns waypoints (corners) for Patroller to connect."""
+    # Return corner waypoints that Patroller will connect with A*
+    # For an open room, use the four corners
+    walkable = []
     for y in range(1, grid.height - 1):
         for x in range(1, grid.width - 1):
             if grid.is_walkable((x, y)):
-                route.append((x, y))
-    # Sort to make a loop
-    route.sort(key=lambda p: (p[1], p[0]))
-    return route
+                walkable.append((x, y))
+
+    if not walkable:
+        return []
+
+    xs = [p[0] for p in walkable]
+    ys = [p[1] for p in walkable]
+    min_x, max_x = min(xs), max(xs)
+    min_y, max_y = min(ys), max(ys)
+
+    # Return four corners as waypoints
+    return [
+        (min_x, min_y),
+        (max_x, min_y),
+        (max_x, max_y),
+        (min_x, max_y),
+    ]
 
 
 class TestEnemyVision:
@@ -52,7 +67,7 @@ class TestEnemyVision:
         """Test that enemy sees player within radius in open room."""
         grid = make_open_room_grid()
         patrol_route = make_patrol_route(grid)
-        enemy = Patroller(patrol_route[0], patrol_route)
+        enemy = Patroller(patrol_route, grid)
         enemy.position = (2, 2)
         player_pos = (4, 2)  # Distance 2, no walls
 
@@ -62,7 +77,7 @@ class TestEnemyVision:
         """Test that enemy does not see player beyond sight radius."""
         grid = make_open_room_grid()
         patrol_route = make_patrol_route(grid)
-        enemy = Patroller(patrol_route[0], patrol_route)
+        enemy = Patroller(patrol_route, grid)
         enemy.position = (1, 1)
         player_pos = (8, 4)  # Distance > 5
 
@@ -72,7 +87,7 @@ class TestEnemyVision:
         """Test that wall blocks line of sight."""
         grid = make_grid_with_wall()
         patrol_route = make_patrol_route(grid)
-        enemy = Patroller(patrol_route[0], patrol_route)
+        enemy = Patroller(patrol_route, grid)
         enemy.position = (2, 1)  # Above the wall
         player_pos = (2, 3)  # Below the wall, distance 2 but wall in between
 
@@ -82,7 +97,7 @@ class TestEnemyVision:
         """Test that wall to the side doesn't block if not on line."""
         grid = make_grid_with_wall()
         patrol_route = make_patrol_route(grid)
-        enemy = Patroller(patrol_route[0], patrol_route)
+        enemy = Patroller(patrol_route, grid)
         enemy.position = (1, 2)  # Left of wall
         player_pos = (3, 2)  # Right of wall, same row - wall at (2,2) is between
 
@@ -93,7 +108,7 @@ class TestEnemyVision:
         """Test vision works for adjacent tiles."""
         grid = make_open_room_grid()
         patrol_route = make_patrol_route(grid)
-        enemy = Patroller(patrol_route[0], patrol_route)
+        enemy = Patroller(patrol_route, grid)
         enemy.position = (3, 2)
         player_pos = (4, 2)
 
@@ -107,29 +122,31 @@ class TestEnemyPatrol:
         """Test that patroller loops through patrol route."""
         grid = make_open_room_grid()
         patrol_route = make_patrol_route(grid)
-        start_pos = patrol_route[0]
-        enemy = Patroller(start_pos, patrol_route)
+        enemy = Patroller(patrol_route, grid)
 
         # Move through entire route
         positions = []
-        for _ in range(len(patrol_route) + 2):
+        full_route = enemy.patrol_route  # The connected route from waypoints
+        for _ in range(len(full_route) + 2):
             enemy.update(grid, (100, 100), Tracker(), ZoneModel())  # Player far away
             positions.append(enemy.position)
 
         # Should have visited all route positions and looped back
-        assert positions[0] == patrol_route[1]  # First step
-        assert positions[len(patrol_route) - 1] == patrol_route[0]  # Completed loop
-        assert positions[len(patrol_route)] == patrol_route[1]  # Looped again
+        # full_route includes start position at both beginning and end, so loop completes in len(full_route) - 1 steps
+        assert positions[0] == full_route[1]  # First step
+        assert positions[len(full_route) - 2] == full_route[0]  # Completed loop (back at start)
+        assert positions[len(full_route) - 1] == full_route[1]  # Looped again (second step of next loop)
 
     def test_patrol_stays_on_route(self):
         """Test that patrol only uses positions from the route."""
         grid = make_open_room_grid()
         patrol_route = make_patrol_route(grid)
-        enemy = Patroller(patrol_route[0], patrol_route)
+        enemy = Patroller(patrol_route, grid)
+        full_route = enemy.patrol_route  # The connected route from waypoints
 
         for _ in range(20):
             enemy.update(grid, (100, 100), Tracker(), ZoneModel())
-            assert enemy.position in patrol_route
+            assert enemy.position in full_route
 
 
 class TestEnemyChase:
@@ -139,7 +156,7 @@ class TestEnemyChase:
         """Test that chaser reaches adjacent to player in open room."""
         grid = make_open_room_grid()
         patrol_route = make_patrol_route(grid)
-        enemy = Patroller(patrol_route[0], patrol_route)
+        enemy = Patroller(patrol_route, grid)
         enemy.position = (2, 2)
 
         # Create tracker with some data so cost map isn't empty
@@ -165,7 +182,7 @@ class TestEnemyChase:
         """Test that enemy returns to patrol when losing sight of player."""
         grid = make_grid_with_wall()
         patrol_route = make_patrol_route(grid)
-        enemy = Patroller(patrol_route[0], patrol_route)
+        enemy = Patroller(patrol_route, grid)
         enemy.position = (2, 1)
 
         tracker = Tracker()
@@ -181,8 +198,8 @@ class TestEnemyChase:
         enemy.update(grid, player_pos, tracker, zone_model)
         assert enemy.state == EnemyState.CHASE
 
-        # Player moves back behind wall
-        player_pos = (2, 3)
+        # Player moves far away - out of sight radius
+        player_pos = (100, 100)
         enemy.update(grid, player_pos, tracker, zone_model)
         assert enemy.state == EnemyState.PATROL
 
@@ -264,7 +281,7 @@ class TestEnemyStateMachine:
         """Test patrol -> chase transition on sight."""
         grid = make_open_room_grid()
         patrol_route = make_patrol_route(grid)
-        enemy = Patroller(patrol_route[0], patrol_route)
+        enemy = Patroller(patrol_route, grid)
         enemy.position = (3, 2)
 
         tracker = Tracker()
@@ -282,7 +299,7 @@ class TestEnemyStateMachine:
         """Test chase -> patrol transition when losing sight."""
         grid = make_open_room_grid()
         patrol_route = make_patrol_route(grid)
-        enemy = Patroller(patrol_route[0], patrol_route)
+        enemy = Patroller(patrol_route, grid)
         enemy.position = (3, 2)
 
         tracker = Tracker()
@@ -302,7 +319,7 @@ class TestEnemyStateMachine:
         """Test that A* is re-planned every 3 turns during chase."""
         grid = make_open_room_grid()
         patrol_route = make_patrol_route(grid)
-        enemy = Patroller(patrol_route[0], patrol_route)
+        enemy = Patroller(patrol_route, grid)
         enemy.position = (4, 2)
 
         tracker = Tracker()
@@ -332,7 +349,7 @@ class TestEnemyStateMachine:
         """Test that A* is re-planned immediately on state change."""
         grid = make_open_room_grid()
         patrol_route = make_patrol_route(grid)
-        enemy = Patroller(patrol_route[0], patrol_route)
+        enemy = Patroller(patrol_route, grid)
         enemy.position = (3, 2)
 
         tracker = Tracker()

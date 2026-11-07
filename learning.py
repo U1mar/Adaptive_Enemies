@@ -49,6 +49,22 @@ class ZoneModel:
         self.transitions: Dict[Zone, Dict[Zone, int]] = {z: {z2: 0 for z2 in self.zones} for z in self.zones}
         self.last_zone: Optional[Zone] = None
 
+    def set_zones(self, zones: List[Zone]) -> None:
+        """Update the zone list (e.g., when loading a new level)."""
+        # Preserve existing transition data for zones that still exist
+        old_transitions = self.transitions
+        self.zones = zones
+        self.transitions = {z: {z2: 0 for z2 in self.zones} for z in self.zones}
+        # Restore transitions for zones that exist in both old and new
+        for from_zone in self.zones:
+            if from_zone in old_transitions:
+                for to_zone in self.zones:
+                    if to_zone in old_transitions[from_zone]:
+                        self.transitions[from_zone][to_zone] = old_transitions[from_zone][to_zone]
+        # Reset last_zone if it's not in new zones
+        if self.last_zone not in self.zones:
+            self.last_zone = None
+
     def record_transition(self, from_zone: Zone, to_zone: Zone) -> None:
         """Record a zone transition."""
         if from_zone in self.transitions and to_zone in self.transitions[from_zone]:
