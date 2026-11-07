@@ -1,0 +1,60 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# pytest cache
+.pytest_cache/
+
+# Virtual environments
+venv/
+env/
+.venv/
+.env/
+
+# IDE / Editor settings
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+
+# Distribution / Packaging
+*.rar
+*.zip
+*.tar.gz
+dist/
+build/
+*.egg-info/
+
+# Results / Output files (generated plots, CSV data, etc.)
+results/
+*.png
+*.csv
+
+# Logs
+*.log
+
+# Environment / Config files with secrets
+.env
+.env.local
+.env.*.local
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# Coverage reports
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+
+# Mypy cache
+.mypy_cache/
+
+# pyenv
+.python-version
