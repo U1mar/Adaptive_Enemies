@@ -150,7 +150,8 @@ def test_tuple_api_and_edge_cases():
     blocked = Grid(5, 5, {(2, y) for y in range(5)}, (0, 0), (0, 0), (4, 4))
     for algo in (bfs, dijkstra, astar):
         path, explored = algo(blocked, (0, 0), (4, 4))
-        assert path == [] and explored > 0
+        assert path == [] 
+        explored > 0
 
 
 def test_lowest_step_cost_scales_heuristic():
@@ -165,7 +166,8 @@ def test_margin_falls_back_to_full_map():
     g = Grid(10, 4, {(x, 1) for x in range(0, 9)}, (0, 0), (0, 0), (9, 3))
     tight, _ = astar(g, (0, 0), (0, 2), None, margin=0)
     full, _ = astar(g, (0, 0), (0, 2))
-    assert tight and len(tight) == len(full)
+    assert tight 
+    len(tight) == len(full)
 
 
 def test_distance_map_matches_path_distance():
@@ -258,7 +260,8 @@ def test_overlay_data_from_real_enemies():
     data = enemy_overlay_data(g.enemies)
     assert len(data) == len(g.enemies)
     for d, e in zip(data, g.enemies):
-        assert d["pos"] == e.position and d["letter"] in "PCF"
+        assert d["pos"] == e.position 
+        d["letter"] in "PCF"
     e = g.enemies[0]
     e.state = EnemyState.CHASE
     assert enemy_overlay_data([e])[0]["letter"] == "C"
@@ -269,9 +272,11 @@ def test_explored_nodes_recorded_only_when_requested():
     e = g.enemies[0]
     e.record_explored = True
     e._move_one_step_toward(g.grid, g.grid.exit)
-    assert e.last_explored and e.path_preview
+    assert e.last_explored 
+    e.path_preview
     res = astar_result(g.grid, g.grid.start, g.grid.exit, record=True)
-    assert res.explored and res.nodes_explored == len(res.explored)
+    assert res.explored 
+    res.nodes_explored == len(res.explored)
 
 
 def test_overlay_draw_headless():
@@ -309,7 +314,8 @@ def test_record_a_real_round_and_replay_it():
     done = rec.finish("caught" if caught else "timeout", g.tracker.probability_map())
     pl = ReplayPlayer(done)
     pl.handle_key("end")
-    assert pl.frame.player == done.player_path[-1] and pl.progress == 1.0
+    assert pl.frame.player == done.player_path[-1] 
+    pl.progress == 1.0
 
 
 def test_player_scrub_and_playback():
@@ -321,8 +327,10 @@ def test_player_scrub_and_playback():
     pl.seek_fraction(0.5); assert pl.index in (2, 3)
     pl = ReplayPlayer(_rec(), fps=10)
     pl.handle_key("p"); pl.update(0.25); assert pl.index == 2
-    pl.update(10); assert pl.index == 5 and not pl.playing
-    pl.handle_key("p"); assert pl.index == 0 and pl.playing
+    pl.update(10); assert pl.index == 5 
+    not pl.playing
+    pl.handle_key("p"); assert pl.index == 0 
+    pl.playing
 
 
 def test_recording_json_roundtrip_with_tuple_keyed_heatmap(tmp_path):
@@ -330,7 +338,8 @@ def test_recording_json_roundtrip_with_tuple_keyed_heatmap(tmp_path):
     f = tmp_path / "r.json"
     rec.save(str(f))
     back = RoundRecording.load(str(f))
-    assert back.player_path == rec.player_path and back.frames[-1].caught
+    assert back.player_path == rec.player_path 
+    back.frames[-1].caught
     assert back.heatmap == {(1, 1): 0.5}
 
 
