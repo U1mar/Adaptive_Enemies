@@ -1,10 +1,11 @@
 """Tests for game engine."""
 from __future__ import annotations
 import pytest
+import random
 from typing import List, Tuple
 
 from grid import Grid, Position
-from game.engine import Game, RoundResult, Policy
+from game.engine import Game, RoundResult, Policy, find_spawn_position, _get_per_round_rng
 from learning import Tracker, ZoneModel
 from game.enemy import Patroller, Flanker
 
@@ -149,6 +150,74 @@ def test_zone_model_persists_across_rounds():
     transitions_2 = {z: dict(v) for z, v in game.zone_model.transitions.items()}
     total_trans_2 = sum(sum(v.values()) for v in transitions_2.values())
     assert total_trans_2 > total_trans_1
+
+
+def test_spawn_positions_differ_between_rounds():
+    """Rounds 1 and 2 should give different spawn lists on a generated level."""
+    game1 = Game(level=1, seed=42)
+    # Capture spawn positions after round 0 (first round)
+    round1_spawns = [e.position for e in game1.enemies]
+
+    # Create a new game with same seed but round_number=1 (simulating round 2)
+    game2 = Game(level=1, seed=42)
+    game2.round_number = 1
+    game2._init_enemies()  # Re-initialize enemies for round 2
+    round2_spawns = [e.position for e in game2.enemies]
+
+    # Spawns should differ between rounds (very high probability with RNG)
+    assert round1_spawns != round2_spawns, "Spawn positions should differ between rounds"
+
+
+def test_spawn_positions_reproducible_same_round():
+    """The same round number with same seed should give identical spawn lists."""
+    game1 = Game(level=1, seed=123)
+    round1_spawns = [e.position for e in game1.enemies]
+
+    game2 = Game(level=1, seed=123)
+    round2_spawns = [e.position for e in game2.enemies]
+
+    # Same seed + same round (0) = same spawns
+    assert round1_spawns == round2_spawns, "Same seed and round should produce identical spawns"
+
+
+def test_spawn_positions_walkable_and_not_on_player_start():
+    """Spawns should be walkable and not on the player start position."""
+    game = Game(level=1, seed=999)
+    start_pos = game.grid.start
+
+    for enemy in game.enemies:
+        spawn = enemy.position
+        # Spawn must be walkable
+        assert game.grid.is_walkable(spawn), f"Spawn {spawn} is not walkable"
+        # Spawn must not be on player start
+        assert spawn != start_pos, f"Spawn {spawn} should not be on player start {start_pos}"
+
+
+def test_find_spawn_position_uses_rng():
+    """find_spawn_position should use provided RNG for reproducible randomness."""
+    grid = Grid.from_ascii("""\
+##########
+#S.......#
+#........#
+#........#
+#....V...#
+#........#
+#........#
+#....E...#
+##########""")
+
+    rng1 = random.Random(42)
+    rng2 = random.Random(42)
+    rng3 = random.Random(999)
+
+    pos1 = find_spawn_position(grid, min_distance=4, rng=rng1)
+    pos2 = find_spawn_position(grid, min_distance=4, rng=rng2)
+    pos3 = find_spawn_position(grid, min_distance=4, rng=rng3)
+
+    # Same RNG seed -> same position
+    assert pos1 == pos2, "Same RNG should produce same spawn"
+    # Different RNG seed -> likely different position
+    assert pos1 != pos3, "Different RNG should produce different spawn"
 
 
 if __name__ == '__main__':

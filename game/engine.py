@@ -148,51 +148,61 @@ def build_patrol_routes_legacy(grid: Grid) -> List[List[Position]]:
 
 
 def find_spawn_position(grid: Grid, min_distance: int = 8, exclude: List[Position] = None,
-                        zone: str = None) -> Position:
+                        zone: str = None, rng: random.Random = None) -> Position:
     """Find a walkable position at least min_distance away from start by path distance.
     If zone specified, only consider positions in that zone.
+    Uses the provided RNG for reproducible but varied spawns per round.
+    If no tile satisfies min_distance, relaxes the distance step by step.
     """
     exclude = exclude or []
-    candidates = []
+    rng = rng or random.Random()
 
-    if zone is not None:
-        # Search only in the specified zone
-        for y in range(1, grid.height - 1):
-            for x in range(1, grid.width - 1):
-                pos = (x, y)
-                if grid.is_walkable(pos) and grid.zone_of(pos) == zone and pos not in exclude and pos != grid.start:
-                    dist = grid.path_distance(grid.start, pos)
-                    if dist is not None and dist >= min_distance:
-                        candidates.append((pos, dist))
-    else:
-        # Search all walkable tiles
-        for y in range(1, grid.height - 1):
-            for x in range(1, grid.width - 1):
-                pos = (x, y)
-                if grid.is_walkable(pos) and pos != grid.start and pos not in exclude:
-                    dist = grid.path_distance(grid.start, pos)
-                    if dist is not None and dist >= min_distance:
-                        candidates.append((pos, dist))
-
-    if not candidates:
-        # Fallback: any walkable position in zone not at start
-        if zone:
+    def collect_candidates(current_min_dist: int) -> List[Tuple[Position, int]]:
+        """Collect all valid candidates at the given minimum distance."""
+        cand = []
+        if zone is not None:
             for y in range(1, grid.height - 1):
                 for x in range(1, grid.width - 1):
                     pos = (x, y)
-                    if grid.is_walkable(pos) and grid.zone_of(pos) == zone and pos != grid.start and pos not in exclude:
-                        return pos
-        # Last resort: any walkable not at start
+                    if grid.is_walkable(pos) and grid.zone_of(pos) == zone and pos not in exclude and pos != grid.start:
+                        dist = grid.path_distance(grid.start, pos)
+                        if dist is not None and dist >= current_min_dist:
+                            cand.append((pos, dist))
+        else:
+            for y in range(1, grid.height - 1):
+                for x in range(1, grid.width - 1):
+                    pos = (x, y)
+                    if grid.is_walkable(pos) and pos != grid.start and pos not in exclude:
+                        dist = grid.path_distance(grid.start, pos)
+                        if dist is not None and dist >= current_min_dist:
+                            cand.append((pos, dist))
+        return cand
+
+    # Try with the requested min_distance, then relax step by step
+    current_min_dist = min_distance
+    while current_min_dist >= 0:
+        candidates = collect_candidates(current_min_dist)
+        if candidates:
+            # Choose randomly from valid candidates using per-round RNG
+            chosen = rng.choice(candidates)
+            return chosen[0]
+        # Relax distance and try again
+        current_min_dist = max(0, current_min_dist - 2)
+
+    # Fallback: any walkable position in zone not at start (distance 0)
+    if zone:
         for y in range(1, grid.height - 1):
             for x in range(1, grid.width - 1):
                 pos = (x, y)
-                if grid.is_walkable(pos) and pos != grid.start and pos not in exclude:
+                if grid.is_walkable(pos) and grid.zone_of(pos) == zone and pos != grid.start and pos not in exclude:
                     return pos
-        return grid.start
-
-    # Prefer positions with good distance but not too far
-    candidates.sort(key=lambda c: c[1])
-    return candidates[0][0]
+    # Last resort: any walkable not at start
+    for y in range(1, grid.height - 1):
+        for x in range(1, grid.width - 1):
+            pos = (x, y)
+            if grid.is_walkable(pos) and pos != grid.start and pos not in exclude:
+                return pos
+    return grid.start
 
 
 def _get_per_round_rng(level_seed: int, round_number: int) -> random.Random:
@@ -296,7 +306,7 @@ class Game:
         for i in range(num_patrollers):
             if i < len(self.patrol_routes) and self.patrol_routes[i]:
                 zone = zone_names[i] if i < len(zone_names) else zone_names[-1]
-                spawn_pos = find_spawn_position(self.grid, min_distance=8, exclude=used_positions, zone=zone)
+                spawn_pos = find_spawn_position(self.grid, min_distance=8, exclude=used_positions, zone=zone, rng=rng)
 
                 # For procedural levels, sample new waypoints from the route
                 if self.level_obj.routes:
@@ -324,7 +334,7 @@ class Game:
             route_idx = min(num_patrollers + i, len(self.patrol_routes) - 1)
             if route_idx < len(self.patrol_routes) and self.patrol_routes[route_idx]:
                 zone = zone_names[route_idx] if route_idx < len(zone_names) else zone_names[-1]
-                spawn_pos = find_spawn_position(self.grid, min_distance=8, exclude=used_positions, zone=zone)
+                spawn_pos = find_spawn_position(self.grid, min_distance=8, exclude=used_positions, zone=zone, rng=rng)
                 flanker = Flanker(spawn_pos, self.patrol_routes[route_idx], self.grid)
                 flanker.sight_radius = sight_radius
                 # Set chokepoints for this flanker
@@ -333,7 +343,7 @@ class Game:
                 used_positions.append(spawn_pos)
             elif self.patrol_routes:
                 zone = zone_names[-1]
-                spawn_pos = find_spawn_position(self.grid, min_distance=8, exclude=used_positions, zone=zone)
+                spawn_pos = find_spawn_position(self.grid, min_distance=8, exclude=used_positions, zone=zone, rng=rng)
                 flanker = Flanker(spawn_pos, self.patrol_routes[-1], self.grid)
                 flanker.sight_radius = sight_radius
                 flanker.chokepoints = chokepoints
