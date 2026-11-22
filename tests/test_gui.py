@@ -12,7 +12,7 @@ try:
 except ImportError:
     PYGAME_AVAILABLE = False
 
-from gui import make_game, window_size, draw_map, draw_entities, draw_panel
+from gui import make_game, window_size, draw_map, draw_entities, draw_panel, run_headless_simulation
 
 
 @pytest.mark.skipif(not PYGAME_AVAILABLE, reason="pygame not installed")
@@ -32,11 +32,10 @@ def test_gui_headless_levels():
             # Call draw functions 5 times each
             for _ in range(5):
                 draw_map(screen, game)
-                draw_entities(screen, game)
+                draw_entities(screen, game, game.grid.start)
                 draw_panel(screen, game)
 
             # Verify surface was drawn to (not blank)
-            # Just ensure no exceptions were raised
             assert screen is not None
 
     finally:
@@ -64,6 +63,14 @@ def test_window_size():
 
     assert w == expected_w
     assert h == expected_h
+
+
+@pytest.mark.skipif(not PYGAME_AVAILABLE, reason="pygame not installed")
+def test_headless_simulation():
+    """Test headless simulation with 20 random key events for each level."""
+    for level in range(1, 5):
+        # Should not crash
+        run_headless_simulation(level=level, seed=42, num_steps=20)
 
 
 if __name__ == "__main__":
