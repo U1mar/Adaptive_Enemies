@@ -15,11 +15,13 @@ class Tracker:
         self.decay = decay
         self.visit_counts: Dict[Position, float] = {}
         self.history: deque[Position] = deque(maxlen=history_len)
+        self.version = 0   # bumped on every change; lets ai.costs cache the step-cost map
 
     def record(self, pos: Position) -> None:
         """Record a visit to a position."""
         self.visit_counts[pos] = self.visit_counts.get(pos, 0.0) + 1.0
         self.history.append(pos)
+        self.version += 1
 
     def decay_counts(self) -> None:
         """Apply decay factor to all visit counts."""
@@ -27,6 +29,7 @@ class Tracker:
             self.visit_counts[pos] *= self.decay
         # Remove very small counts
         self.visit_counts = {p: c for p, c in self.visit_counts.items() if c > 0.01}
+        self.version += 1
 
     def probability_map(self) -> Dict[Position, float]:
         """Return normalized probability map."""

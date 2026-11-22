@@ -5,6 +5,7 @@ from typing import Dict, Tuple, List, Optional
 from grid import Grid, Position
 from learning import Tracker
 from game.constants import MIN_STEP_COST
+from pathing import StepCostMap
 
 CostMap = Dict[Position, float]
 
@@ -42,6 +43,28 @@ def build_cost_map(tracker: Tracker, alpha: float, min_step_cost: float = MIN_ST
         cost_map[pos] = cost
 
     return cost_map
+
+
+_step_cache: dict = {}
+
+
+def get_step_costs(grid: Grid, tracker: Tracker, alpha: float) -> StepCostMap:
+    """StepCostMap for the tracker's current state, built once and shared by every enemy.
+
+    The cache key is (grid, tracker, tracker.version, alpha); tracker.version changes on every
+    record()/decay_counts(), so the map is rebuilt at most once per turn instead of once per enemy
+    per step. If the tracker has no `version`, nothing is cached (always correct, just slower).
+    """
+    ver = getattr(tracker, 'version', None)
+    ent = _step_cache.get('last')
+    if ver is not None and ent is not None:
+        g, t, v, a, sc = ent
+        if g is grid and t is tracker and v == ver and a == alpha:
+            return sc
+    sc = StepCostMap(grid, build_cost_map(tracker, alpha))
+    if ver is not None:
+        _step_cache['last'] = (grid, tracker, ver, alpha, sc)
+    return sc
 
 
 def build_flank_targets(grid: Grid, prob_map: Dict[Position, float]) -> Optional[Position]:

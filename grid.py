@@ -104,38 +104,13 @@ class Grid:
         """Return zone name based on nearest route (route_0, route_1, route_2).
         Falls back to corridor-based detection if no routes are defined.
         """
-        # Use route-based zones if routes are available
+        # Use route-based zones if routes are available.
+        # Computed with ONE multi-source BFS per route (instead of a BFS for every tile/route-tile
+        # pair), then cached. Same result as before: nearest route by path distance, ties -> lowest index.
         if self.routes:
-            # Check cache first
-            if p in self._route_zone_cache:
-                route_idx = self._route_zone_cache[p]
-                return f'route_{route_idx}'
-
-            # Find nearest route
-            min_dist = float('inf')
-            nearest_route = 0
-            found_any = False
-            for i, route in enumerate(self.routes):
-                if not route:
-                    continue
-                # Find minimum path distance from position to any tile on this route
-                distances = [self.path_distance(p, tile) for tile in route]
-                valid_distances = [d for d in distances if d is not None]
-                if not valid_distances:
-                    # This route has no reachable tiles from position p
-                    continue
-                route_dist = min(valid_distances)
-                if route_dist < min_dist:
-                    min_dist = route_dist
-                    nearest_route = i
-                    found_any = True
-
-            if not found_any:
-                # No route reachable from this position - fall back to corridor-based detection
-                pass  # Will continue to fallback logic below
-            else:
-                self._route_zone_cache[p] = nearest_route
-                return f'route_{nearest_route}'
+            zmap = self._route_zone_map()
+            if p in zmap:
+                return f'route_{zmap[p]}'
 
         # Fallback to corridor-based detection for legacy maps
         x, _ = p
@@ -155,6 +130,50 @@ class Grid:
         elif x < 2 * third:
             return 'middle'
         return 'east'
+
+    def _route_zone_map(self) -> Dict[Position, int]:
+        """Map walkable tile -> index of the nearest route (by path distance). Built lazily."""
+        sig = tuple(len(r) for r in self.routes)
+        cached = getattr(self, '_zone_map_cache', None)
+        if cached is not None and cached[0] == sig:
+            return cached[1]
+        best: Dict[Position, Tuple[int, int]] = {}
+        for i, route in enumerate(self.routes):
+            sources = [t for t in route if self.is_walkable(t)]
+            if not sources:
+                continue
+            dist = {t: 0 for t in sources}
+            queue = deque(sources)
+            while queue:
+                cur = queue.popleft()
+                d = dist[cur] + 1
+                for nb in self.neighbors(cur):
+                    if nb not in dist:
+                        dist[nb] = d
+                        queue.append(nb)
+            for pos, d in dist.items():
+                if pos not in best or d < best[pos][0]:   # strict < : earliest route wins ties
+                    best[pos] = (d, i)
+        zmap = {pos: v[1] for pos, v in best.items()}
+        self._zone_map_cache = (sig, zmap)
+        return zmap
+
+    def distance_map(self, source: Position) -> Dict[Position, int]:
+        """Path length from `source` to every reachable tile (one BFS). Use instead of calling
+        path_distance() once per tile."""
+        dist: Dict[Position, int] = {}
+        if not self.is_walkable(source):
+            return dist
+        dist[source] = 0
+        queue = deque([source])
+        while queue:
+            cur = queue.popleft()
+            d = dist[cur] + 1
+            for nb in self.neighbors(cur):
+                if nb not in dist:
+                    dist[nb] = d
+                    queue.append(nb)
+        return dist
 
     def get_corridors(self) -> List[Tuple[int, int, str]]:
         """Return list of (start_x, end_x, zone_name) for each corridor."""

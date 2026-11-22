@@ -10,6 +10,7 @@ from game.enemy import Patroller, Flanker, EnemyState
 from learning import Tracker, ZoneModel
 from ai.costs import build_cost_map
 from game.constants import DECAY_INTERVAL
+from game.enemy_rng import enemy_rng
 
 
 @dataclass
@@ -154,6 +155,7 @@ def find_spawn_position(grid: Grid, min_distance: int = 8, exclude: List[Positio
     """
     exclude = exclude or []
     candidates = []
+    dist_from_start = grid.distance_map(grid.start)   # one BFS instead of one per candidate tile
 
     if zone is not None:
         # Search only in the specified zone
@@ -161,7 +163,7 @@ def find_spawn_position(grid: Grid, min_distance: int = 8, exclude: List[Positio
             for x in range(1, grid.width - 1):
                 pos = (x, y)
                 if grid.is_walkable(pos) and grid.zone_of(pos) == zone and pos not in exclude and pos != grid.start:
-                    dist = grid.path_distance(grid.start, pos)
+                    dist = dist_from_start.get(pos)
                     if dist is not None and dist >= min_distance:
                         candidates.append((pos, dist))
     else:
@@ -170,7 +172,7 @@ def find_spawn_position(grid: Grid, min_distance: int = 8, exclude: List[Positio
             for x in range(1, grid.width - 1):
                 pos = (x, y)
                 if grid.is_walkable(pos) and pos != grid.start and pos not in exclude:
-                    dist = grid.path_distance(grid.start, pos)
+                    dist = dist_from_start.get(pos)
                     if dist is not None and dist >= min_distance:
                         candidates.append((pos, dist))
 
@@ -308,7 +310,8 @@ class Game:
                     if len(waypoints) < 2:
                         waypoints = [self.patrol_routes[i][0], self.patrol_routes[i][-1]]
 
-                patroller = Patroller(waypoints, self.grid)
+                patroller = Patroller(waypoints, self.grid,
+                                      rng=enemy_rng(self.level_obj.seed, self.round_number, "patroller", i))
                 patroller.position = spawn_pos
                 patroller.sight_radius = sight_radius
                 self.enemies.append(patroller)
@@ -325,7 +328,8 @@ class Game:
             if route_idx < len(self.patrol_routes) and self.patrol_routes[route_idx]:
                 zone = zone_names[route_idx] if route_idx < len(zone_names) else zone_names[-1]
                 spawn_pos = find_spawn_position(self.grid, min_distance=8, exclude=used_positions, zone=zone)
-                flanker = Flanker(spawn_pos, self.patrol_routes[route_idx], self.grid)
+                flanker = Flanker(spawn_pos, self.patrol_routes[route_idx], self.grid,
+                                  rng=enemy_rng(self.level_obj.seed, self.round_number, "flanker", i))
                 flanker.sight_radius = sight_radius
                 # Set chokepoints for this flanker
                 flanker.chokepoints = chokepoints
@@ -334,7 +338,8 @@ class Game:
             elif self.patrol_routes:
                 zone = zone_names[-1]
                 spawn_pos = find_spawn_position(self.grid, min_distance=8, exclude=used_positions, zone=zone)
-                flanker = Flanker(spawn_pos, self.patrol_routes[-1], self.grid)
+                flanker = Flanker(spawn_pos, self.patrol_routes[-1], self.grid,
+                                  rng=enemy_rng(self.level_obj.seed, self.round_number, "flanker", i))
                 flanker.sight_radius = sight_radius
                 flanker.chokepoints = chokepoints
                 self.enemies.append(flanker)
