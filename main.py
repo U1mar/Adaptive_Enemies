@@ -1,6 +1,7 @@
 """Main entry point for the adaptive enemies game with human player (interactive)."""
 from __future__ import annotations
 import sys
+import argparse
 from typing import List, Tuple, Optional
 import random
 import os
@@ -11,6 +12,13 @@ from grid import Grid, Position
 from game.engine import Game
 from game.ui import GameUI, build_level_table
 from game.levels import get_num_levels
+
+
+def parse_args() -> argparse.Namespace:
+    """Parse command line arguments."""
+    parser = argparse.ArgumentParser(description="Adaptive Enemies Game")
+    parser.add_argument("--gui", action="store_true", help="Launch the Pygame GUI with start menu")
+    return parser.parse_args()
 
 
 def get_move_from_key(key: str, player_pos: Position, grid: Grid) -> Position:
@@ -189,4 +197,16 @@ def run_interactive() -> None:
 
 
 if __name__ == "__main__":
-    run_interactive()
+    args = parse_args()
+    if args.gui:
+        # Launch GUI mode
+        try:
+            from gui import run as run_gui
+            run_gui()
+        except ImportError as e:
+            print(f"GUI not available: {e}")
+            print("Install pygame with: pip install pygame")
+            sys.exit(1)
+    else:
+        # Terminal mode (default)
+        run_interactive()
